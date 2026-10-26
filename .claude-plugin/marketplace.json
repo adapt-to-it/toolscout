@@ -1,0 +1,13 @@
+{
+  "name": "adapt-to-it",
+  "description": "Claude Code mods by adapt-to-it.",
+  "owner": {
+    "name": "adapt-to-it"
+  },
+  "plugins": [
+    {
+      "name": "toolscout",
+      "source": "./"
+    }
+  ]
+}

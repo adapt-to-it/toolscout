@@ -1,0 +1,26 @@
+{
+  "name": "toolscout",
+  "version": "0.3.0",
+  "description": "Compacts the deferred tool list into one line per MCP server and, on every message, suggests the relevant tool groups, chosen by TypeSafe's Jev model.",
+  "author": {
+    "name": "adapt-to-it"
+  },
+  "homepage": "https://github.com/adapt-to-it/toolscout",
+  "license": "MIT",
+  "userConfig": {
+    "typesafe_api_key": {
+      "type": "string",
+      "title": "TypeSafe API key",
+      "description": "Key for TypeSafe's Jev model. Without it toolscout only compacts the tool list.",
+      "sensitive": true,
+      "required": false
+    },
+    "server_labels": {
+      "type": "string",
+      "title": "Server labels",
+      "description": "Readable names for connectors that appear as UUIDs, as <server id>=<name>, separated by semicolons.",
+      "required": false,
+      "default": ""
+    }
+  }
+}

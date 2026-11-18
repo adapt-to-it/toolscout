@@ -157,7 +157,18 @@ function scopeOf(changed: string[] | 'all', specs: GroupSpec[], items: Item[], c
   return specs.map(s => s.id).filter(id => near.has(id))
 }
 
-export const calibrate: Calibrate = async (score, specs, refine, { changed, cache, maxRounds = 3 }) => {
+// Test da rimisurare per una nuova definizione di `spec`: i test del gruppo, quelli che lo attendono,
+// quelli in cui sbaglia e quelli in cui la definizione attuale ha probabilità >= NEIGHBOR_PROB.
+function relevantTests(spec: GroupSpec, items: Item[], errs: Errors, cells: ProbCache): Set<TestCase> {
+  const out = new Set<TestCase>(errs.map(e => e.test))
+  for (const it of items) {
+    const near = (cells[cellKey(spec, it.test)] ?? 1) >= NEIGHBOR_PROB
+    if (it.group === spec.id || it.test.expected.includes(spec.id) || near) out.add(it.test)
+  }
+  return out
+}
+
+export const calibrate: Calibrate =async (score, specs, refine, { changed, cache, maxRounds = 3 }) => {
   let current = specs.map(copySpec)
   const { cal, hold } = buildItems(current)
   const all = [...cal, ...hold]
@@ -184,7 +195,14 @@ export const calibrate: Calibrate = async (score, specs, refine, { changed, cach
       if (errs.length === 0) continue
       const definition = await refine(copySpec(s), errs)
       const trial = current.map(x => (x.id === id ? { ...x, definition } : x))
-      await fill(score, cells, tests, trial, run)
+      const candidate = trial.find(x => x.id === id)!
+      // Prova mirata: si rimisurano solo i test pertinenti al gruppo. Gli altri ereditano
+      // la probabilità della definizione attuale, già sotto NEIGHBOR_PROB.
+      const relevant = relevantTests(s, all, errs, cells)
+      for (const it of all) {
+        if (!relevant.has(it.test)) cells[cellKey(candidate, it.test)] = cells[cellKey(s, it.test)]
+      }
+      await fill(score, cells, [...relevant], trial, run)
       if (errorsOf(trial, cal, cells, threshold)[id].length < errs.length) {
         current = trial
         accepted++

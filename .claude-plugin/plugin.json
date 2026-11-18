@@ -1,6 +1,6 @@
 {
   "name": "toolscout",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Compacts the deferred tool list into one line per MCP server and, on every message, suggests the relevant tool groups, chosen by TypeSafe's Jev model.",
   "author": {
     "name": "adapt-to-it"

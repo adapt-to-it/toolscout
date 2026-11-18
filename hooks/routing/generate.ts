@@ -146,6 +146,7 @@ export const generateSpec: GenerateSpec = async (model, group, neighbors) => {
   const spec: GroupSpec = {
     id: group.id,
     hash: group.hash,
+    namesHash: group.namesHash,
     catalogLine: tronca(def.value.catalogLine, MAX_CATALOG),
     definition: tronca(def.value.definition, MAX_DEFINITION),
     tests: tests.value,

@@ -13,6 +13,8 @@ export interface ToolGroup {
   tools: { name: string; description: string }[]
   /** Impronta di nomi e descrizioni: cambia quando cambia il server. */
   hash: string
+  /** Impronta dei soli nomi dei tool: decide se il gruppo va rigenerato. */
+  namesHash: string
 }
 
 /** Un messaggio di prova: il contesto è l'ultimo turno dell'assistente, se serve. */
@@ -22,6 +24,8 @@ export interface TestCase { context?: string; message: string; expected: string[
 export interface GroupSpec {
   id: string
   hash: string
+  /** Impronta dei soli nomi; assente nelle spec create prima della 0.4.0. */
+  namesHash?: string
   /** Una riga per il catalogo dei tool differiti, max 200 caratteri. */
   catalogLine: string
   /** Area del gruppo per Jev: quando vale e quando NON vale. Max 400 caratteri. */

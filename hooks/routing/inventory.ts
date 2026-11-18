@@ -3,6 +3,11 @@ import type { ToolLike, ToolGroup, GroupSpec, GroupTools, DiffGroups } from './t
 // Server MCP che non entrano nel routing: il proprio plugin e il canale di turno.
 const EXCLUDED = new Set(['ccd_turn', 'squadra'])
 
+/** I server interni dell'app (ccd_*) restano nel catalogo dei tool differiti ma non nel routing Jev. */
+export function isRoutable(id: string): boolean {
+  return !EXCLUDED.has(id) && !id.startsWith('ccd_')
+}
+
 // mcp__<server>__<tool>: il server non contiene `__`, il tool sì.
 const MCP_NAME = /^mcp__(.+?)__(.+)$/
 
@@ -31,7 +36,7 @@ export const groupTools: GroupTools = (tools: ToolLike[], labels: Record<string,
     const match = MCP_NAME.exec(tool.name)
     if (!match) continue
     const id = match[1]
-    if (EXCLUDED.has(id)) continue
+    if (!isRoutable(id)) continue
     const list = byServer.get(id) ?? []
     list.push({ name: tool.name, description: tool.description })
     byServer.set(id, list)
@@ -42,17 +47,24 @@ export const groupTools: GroupTools = (tools: ToolLike[], labels: Record<string,
       id,
       label: labels[id] ?? id,
       tools: list,
-      // I server interni dell'app (ccd_*) cambiano descrizioni da una sessione all'altra:
-      // per loro l'impronta usa solo i nomi, altrimenti si rigenerano a ogni avvio.
-      hash: hash(JSON.stringify(list.map((t) => (id.startsWith('ccd_') ? [t.name] : [t.name, t.description])))),
+      hash: hash(JSON.stringify(list.map((t) => [t.name, t.description]))),
+      namesHash: hash(JSON.stringify(list.map((t) => t.name))),
     }
   })
 }
 
-/** Gruppi nuovi o cambiati rispetto alle spec salvate, e id delle spec senza gruppo. */
+/**
+ * Gruppi nuovi o cambiati rispetto alle spec salvate, e id delle spec senza gruppo.
+ * Un gruppo cambia quando cambiano i nomi dei tool: le descrizioni variano tra sessioni
+ * e non giustificano una nuova taratura. Le spec senza namesHash usano ancora l'impronta completa.
+ */
 export const diffGroups: DiffGroups = (groups: ToolGroup[], specs: Record<string, GroupSpec>) => {
   const ids = new Set(groups.map((g) => g.id))
-  const changed = groups.filter((g) => specs[g.id]?.hash !== g.hash)
+  const changed = groups.filter((g) => {
+    const s = specs[g.id]
+    if (!s) return true
+    return s.namesHash ? s.namesHash !== g.namesHash : s.hash !== g.hash
+  })
   const removed = Object.keys(specs).filter((id) => !ids.has(id))
   return { changed, removed }
 }

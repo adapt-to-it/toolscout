@@ -229,4 +229,25 @@ describe('calibrate', () => {
     assert.notEqual(out.specs[0], input[0])
     assert.notEqual(out.specs[1].tests, input[1].tests)
   })
+
+  test('la prova di una definizione rimisura solo i test pertinenti al gruppo', async () => {
+    // B sbaglia solo su b0; i test di A hanno probabilità bassa per B e non si rimisurano.
+    const specs = [
+      spec('A', Array.from({ length: 9 }, (_, i) => t('a' + i, ['A']))),
+      spec('B', [t('b0', ['B']), t('b1', ['B']), t('b2', ['B'])]),
+    ]
+    const prob = (s: GroupSpec, test: TestCase): number =>
+      s.id === 'B' && test.message === 'b0' && s.definition === 'def-B' ? 0.1 : oracle(s, test)
+    const { score, seen } = fakeScore(prob)
+    const { refine, calls } = fakeRefine(() => 'fixed')
+    const out = await calibrate(score, specs, refine, opts('all'))
+    assert.deepEqual(calls, [{ id: 'B', errors: 1 }])
+    assert.equal(out.report.accepted, 1)
+    const trial = seen.slice(12)
+    assert.deepEqual(trial.map(x => x.test.message).sort(), ['b0', 'b1', 'b2'])
+    // 12 test x 2 spec al primo fill, poi 3 domande per la candidata invece di 12
+    assert.equal(out.report.questions, 27)
+    // La cache in uscita copre comunque tutti i test con la definizione finale
+    assert.equal(Object.keys(out.cache).length, 24)
+  })
 })

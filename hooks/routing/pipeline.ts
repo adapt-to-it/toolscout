@@ -3,7 +3,7 @@
 // il comando /toolscout. Le porte ($.model, $.http) le costruisce qui e le passa ai
 // moduli di hooks/routing, che non toccano `$`.
 import type { On } from 'claude-code'
-import { diffGroups, groupTools } from './inventory'
+import { diffGroups, groupTools, isRoutable } from './inventory'
 import { classify, createJev } from './jev'
 import { generateSpec, refineDefinition } from './generate'
 import { calibrate } from './calibrate'
@@ -15,6 +15,10 @@ const GENERATE_PARALLEL = 3
 const CLASSIFY_TIMEOUT_MS = 2000
 const HAIKU_MAX_TOKENS = 4000
 const HEADER = 'Strumenti probabilmente pertinenti (caricali con ToolSearch):'
+// Prompt più corti (ok, sì, vai) non si classificano; i più lunghi si troncano.
+const MIN_PROMPT_CHARS = 20
+const MAX_PROMPT_CHARS = 1000
+const ATTEMPT_KEY = 'routing-attempt'
 
 type Usage = { input_tokens: number; output_tokens: number }
 type ModelReply =
@@ -35,7 +39,8 @@ interface Ctx {
 
 // Un solo aggiornamento alla volta, per tutta la sessione.
 let running: Promise<void> | null = null
-const MIN_UPDATE_INTERVAL_MS = 60 * 60 * 1000
+// Al massimo un tentativo di aggiornamento al giorno, riuscito o fallito; /toolscout rigenera lo forza.
+const MIN_UPDATE_INTERVAL_MS = 24 * 60 * 60 * 1000
 
 /** Avvolge `$.model.complete` con Haiku; conta i token nel contatore `spent`. */
 function modelPort($: Ctx, spent: { tokens: number }): ModelPort {
@@ -123,19 +128,34 @@ function isTwin(a: ToolGroup, b: ToolGroup): boolean {
 }
 
 /** Genera le spec dei gruppi cambiati, calibra e salva il Registry. */
-async function runUpdate($: Ctx): Promise<void> {
+async function runUpdate($: Ctx, force: boolean): Promise<void> {
   const key = await apiKey($)
   if (!key) return
   const reg = await loadRegistry($)
   const groups = groupTools(await stableTools($), settings.labels)
-  const { changed } = diffGroups(groups, reg?.specs ?? {})
+  // I server esclusi dal routing (ccd_*) escono anche dal Registry: non costano domande Jev.
+  const specs: Record<string, GroupSpec> = {}
+  for (const [id, s] of Object.entries(reg?.specs ?? {})) if (isRoutable(id)) specs[id] = s
+  const { changed } = diffGroups(groups, specs)
+  if (reg && changed.length === 0) {
+    // Spec create prima della 0.4.0: si aggiunge l'impronta dei nomi, senza chiamate.
+    let backfilled = false
+    for (const g of groups) {
+      const s = specs[g.id]
+      if (s && !s.namesHash) { specs[g.id] = { ...s, namesHash: g.namesHash }; backfilled = true }
+    }
+    if (backfilled) await $.store.set(REGISTRY_KEY, { ...reg, specs })
+    return
+  }
   if (changed.length === 0) return
-  // Con la cache una taratura incrementale costa poco; il limite evita cicli di rigenerazione.
-  if (reg && Date.now() - Date.parse(reg.updatedAt) < MIN_UPDATE_INTERVAL_MS) return
+  // Il limite vale anche per i tentativi falliti: senza, un errore ripete la taratura a ogni avvio.
+  const attempt = await $.store.get(ATTEMPT_KEY)
+  const last = Math.max(reg ? Date.parse(reg.updatedAt) : 0, typeof attempt === 'string' ? Date.parse(attempt) : 0)
+  if (!force && Date.now() - last < MIN_UPDATE_INTERVAL_MS) return
+  await $.store.set(ATTEMPT_KEY, new Date().toISOString())
 
   const spent = { tokens: 0 }
   const model = modelPort($, spent)
-  const specs: Record<string, GroupSpec> = { ...(reg?.specs ?? {}) }
   // Nessuna rimozione automatica: un server assente può essere solo non ancora collegato.
   // I gruppi spariti davvero si tolgono con /routing rigenera.
 
@@ -198,9 +218,9 @@ async function runUpdate($: Ctx): Promise<void> {
 }
 
 /** Avvia l'aggiornamento in background, senza attendere; mai più di uno alla volta. */
-function refresh($: Ctx): void {
+function refresh($: Ctx, force = false): void {
   if (running) return
-  running = runUpdate($)
+  running = runUpdate($, force)
     .catch(async (err: unknown) => {
       // L'aggiornamento gira in background: l'errore resta nello store, visibile da /routing.
       const message = err instanceof Error ? err.message : String(err)
@@ -222,7 +242,7 @@ async function routeContext($: Ctx, text: string): Promise<string | null> {
   const key = await apiKey($)
   if (!key) return null
   const reg = await loadRegistry($)
-  const specs = Object.values(reg?.specs ?? {})
+  const specs = Object.values(reg?.specs ?? {}).filter(s => isRoutable(s.id))
   if (!reg || specs.length === 0) return null
   const jev = createJev(httpPort($), key)
   const { ids } = await within($, classify(jev, specs, text, undefined, reg.threshold), CLASSIFY_TIMEOUT_MS)
@@ -238,7 +258,7 @@ async function routingReport($: Ctx, arg: string): Promise<string> {
   if (arg === 'rigenera') {
     if (running) return 'Un aggiornamento è già in corso.'
     await $.store.delete(REGISTRY_KEY)
-    refresh($)
+    refresh($, true)
     return 'Registry svuotato: aggiornamento avviato in background.'
   }
   const reg = await loadRegistry($)
@@ -274,9 +294,11 @@ export function installRouting(on: On, s: Settings): void {
   on('prompt.submit', async ($, e, next) => {
     // Un comando slash non si classifica: il suo testo non è una richiesta all'agente.
     if (e.command) return next(e)
+    const typed = userText(e.text)
+    if (typed.length < MIN_PROMPT_CHARS) return next(e)
     let text: string | null = null
     try {
-      text = await routeContext($, userText(e.text))
+      text = await routeContext($, typed.slice(0, MAX_PROMPT_CHARS))
     } catch {
       // Se Jev non risponde il messaggio parte senza suggerimenti.
     }

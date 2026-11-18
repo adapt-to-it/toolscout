@@ -25,6 +25,7 @@ test('groupTools tiene solo i tool MCP e raggruppa per server', () => {
     tool('mcp__finto', 'nome senza tool', true),
     tool('mcp__ccd_turn__x'),
     tool('mcp__squadra__y'),
+    tool('mcp__ccd_session__start'),
   ], { gmail: 'Posta' })
 
   assert.deepEqual(groups.map((g) => g.id), ['calendar', 'gmail'])
@@ -43,9 +44,9 @@ test('group.hash non dipende dall ordine di input e cambia con le descrizioni', 
 
 test('diffGroups segnala gruppi nuovi o cambiati e spec senza gruppo', () => {
   const groups: ToolGroup[] = [
-    { id: 'calendar', label: 'calendar', tools: [], hash: 'h1' },
-    { id: 'gmail', label: 'gmail', tools: [], hash: 'h2' },
-    { id: 'drive', label: 'drive', tools: [], hash: 'h3' },
+    { id: 'calendar', label: 'calendar', tools: [], hash: 'h1', namesHash: 'n1' },
+    { id: 'gmail', label: 'gmail', tools: [], hash: 'h2', namesHash: 'n2' },
+    { id: 'drive', label: 'drive', tools: [], hash: 'h3', namesHash: 'n3' },
   ]
   const specs = {
     gmail: spec('gmail', 'vecchio'),
@@ -55,4 +56,24 @@ test('diffGroups segnala gruppi nuovi o cambiati e spec senza gruppo', () => {
   const result = diffGroups(groups, specs)
   assert.deepEqual(result.changed.map((g) => g.id), ['calendar', 'gmail'])
   assert.deepEqual(result.removed, ['notion'])
+})
+
+test('namesHash ignora le descrizioni e cambia con i nomi', () => {
+  const a = groupTools([tool('mcp__gmail__send', 'x')], {})
+  const b = groupTools([tool('mcp__gmail__send', 'x2')], {})
+  const c = groupTools([tool('mcp__gmail__send', 'x'), tool('mcp__gmail__search', 'y')], {})
+  assert.equal(a[0].namesHash, b[0].namesHash)
+  assert.notEqual(a[0].namesHash, c[0].namesHash)
+})
+
+test('diffGroups con namesHash ignora le descrizioni cambiate', () => {
+  const groups: ToolGroup[] = [
+    { id: 'gmail', label: 'gmail', tools: [], hash: 'nuovo', namesHash: 'n1' },
+    { id: 'drive', label: 'drive', tools: [], hash: 'h3', namesHash: 'n-nuovo' },
+  ]
+  const specs = {
+    gmail: { ...spec('gmail', 'vecchio'), namesHash: 'n1' },
+    drive: { ...spec('drive', 'h3'), namesHash: 'n3' },
+  }
+  assert.deepEqual(diffGroups(groups, specs).changed.map((g) => g.id), ['drive'])
 })
